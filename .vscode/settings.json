@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "esp32-hal.h": "c",
+        "sntp.h": "c",
+        "esp32-hal-timer.h": "c"
+    }
+}
