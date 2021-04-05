@@ -9,7 +9,7 @@
 
 typedef struct Dht11Data {
     bool error = false;
-    bool initiated = true;
+    bool initiated = false;
     float temperature = 0;
     float relative_humidity = 0;
 } Dht11Data_t;

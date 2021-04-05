@@ -36,21 +36,26 @@ void resetData()
 }
 
 QueueHandle_t queue;
-int queueSize = 10;
+int queueSize = 16;
 hw_timer_t *timerLcd = NULL;
 hw_timer_t *timerWeather = NULL;
+hw_timer_t *timerLocalWeather = NULL;
 
 enum class TaskType
 {
   lcd,
-  weather
+  weather,
+  localWeather
 };
 
 void consumerTask(void *parameter)
 {
   TaskType iReceivedTaskType;
   uint8_t lcdScreen(0);
-  String line1, line2;
+  char lineBuffer1[24];
+  char lineBuffer2[24];
+  memset(lineBuffer1, 0, sizeof(lineBuffer1));
+  memset(lineBuffer2, 0, sizeof(lineBuffer2));
   for (;;)
   {
     if (xQueueReceive(queue, &iReceivedTaskType, portMAX_DELAY))
@@ -60,9 +65,9 @@ void consumerTask(void *parameter)
       case TaskType::lcd:
       {
 #ifdef DEBUG
-        USE_SERIAL.println("[consumerTask] TaskType::lcd");
+        USE_SERIAL.printf("[consumerTask] TaskType::lcd %u type\n", lcdScreen);
 #endif
-        line1 = line2 = "                ";
+
         switch (lcdScreen++)
         {
         case 0:
@@ -70,19 +75,19 @@ void consumerTask(void *parameter)
           {
             readTime(timeData, "%F %R");
           }
-          dht11.readDht(dht11Data);
           if (dht11Data.initiated && !dht11Data.error)
           {
-            line2 = "In: " + String(dht11Data.temperature, 0) + String((char)CENTIGRADES) + "C" + " " + String(dht11Data.relative_humidity, 0) + "%";
-            writeToLcd(timeData.localTime.c_str(), line2.c_str());
+            sprintf(lineBuffer2, "In: %2.0fC %2.0f %%", dht11Data.temperature, dht11Data.relative_humidity);
           }
+          writeToLcd(timeData.localTime, lineBuffer2);
           break;
         case 1:
           if (weatherData.initialized && !weatherData.error)
           {
-            line1 = "Out: " + String((double)weatherData.raw["main"]["temp"], 0) + String((char)CENTIGRADES) + "C" + " " + String((double)weatherData.raw["main"]["humidity"], 0) + "%";
-            line2 = String((const char *)weatherData.raw["name"]) + ", " + String((const char *)weatherData.raw["sys"]["country"]);
-            writeToLcd(line1.c_str(), line2.c_str());
+            // (byte)CENTIGRADES
+            sprintf(lineBuffer1, "Out: %2.0f C %2.0f %%", (double)weatherData.raw["main"]["temp"], (double)weatherData.raw["main"]["humidity"]);
+            sprintf(lineBuffer2, "%s, %s", (const char*)weatherData.raw["name"], (const char*)weatherData.raw["sys"]["country"]);
+            writeToLcd(lineBuffer1, lineBuffer2);
           }
           break;
         case 2:
@@ -94,22 +99,26 @@ void consumerTask(void *parameter)
         case 3:
           if (weatherData.initialized && !weatherData.error)
           {
-            line1 = "Pa: " + String((double)weatherData.raw["main"]["pressure"], 0);
-            line2 = "Wind: " + String((double)weatherData.raw["wind"]["speed"], 2) + " " + String((double)weatherData.raw["wind"]["deg"], 0);
-            writeToLcd(line1.c_str(), line2.c_str());
+            sprintf(lineBuffer1, "Pa: %.0f", (double)weatherData.raw["main"]["pressure"]);
+            sprintf(lineBuffer2, "Wind: %.2f %.0f", (double)weatherData.raw["wind"]["speed"], (double)weatherData.raw["wind"]["deg"]);
+            writeToLcd(lineBuffer1, lineBuffer2);
           }
           break;
         case 4:
           if (weatherData.initialized && !weatherData.error)
           {
-            line1 = "Vis: " + String((double)weatherData.raw["visibility"], 0);
-            line2 = "Clouds: " + String((double)weatherData.raw["clouds"]["all"], 0);
-            writeToLcd(line1.c_str(), line2.c_str());
+            sprintf(lineBuffer1, "Vis: %.0f", (double)weatherData.raw["visibility"]);
+            sprintf(lineBuffer2, "Clouds: %.0f", (double)weatherData.raw["clouds"]["all"]);
+            writeToLcd(lineBuffer1, lineBuffer2);
           }
           break;
         default:
-          lcdScreen = 0;
+          
           break;
+        }
+        if (lcdScreen > 4)
+        {
+          lcdScreen = 0;
         }
         break;
       }
@@ -118,17 +127,15 @@ void consumerTask(void *parameter)
 #ifdef DEBUG
         USE_SERIAL.println("[consumerTask] TaskType::weather");
 #endif
-        getDataFromWeather(ipapiData.lat, ipapiData.lon, weatherData);
-        if (weatherData.initialized && !weatherData.error)
-        {
-          if (!timeData.tzProvided)
-          {
-            timeData.gmtOffset_sec = weatherData.timezone;
-            timeData.initialized = false;
-            timeData.tzProvided = true;
-            syncTime(timeData);
-          }
-        }
+        getDataFromWeather(ipapiData.lat, ipapiData.lon, weatherData, timeData.gmtOffset_sec);
+        break;
+      }
+      case TaskType::localWeather:
+      {
+#ifdef DEBUG
+        USE_SERIAL.println("[consumerTask] TaskType::localWeather");
+#endif
+        dht11.readDht(dht11Data);
         break;
       }
       default:
@@ -152,6 +159,12 @@ void IRAM_ATTR onTimerWeather()
 {
   TaskType weatherTT(TaskType::weather);
   xQueueSendFromISR(queue, &weatherTT, NULL);
+}
+
+void IRAM_ATTR onTimerLocalWeather()
+{
+  TaskType localWeatherTT(TaskType::localWeather);
+  xQueueSendFromISR(queue, &localWeatherTT, NULL);
 }
 
 void setup()
@@ -179,7 +192,10 @@ void setup()
   timerAlarmWrite(timerLcd, 1000000 * 10, true);
   timerWeather = timerBegin(1, 80, true);
   timerAttachInterrupt(timerWeather, &onTimerWeather, true);
-  timerAlarmWrite(timerWeather, 1000000 * 60, true);
+  timerAlarmWrite(timerWeather, 1000000 * 60 * 15, true);
+  timerLocalWeather = timerBegin(2, 80, true);
+  timerAttachInterrupt(timerLocalWeather, &onTimerLocalWeather, true);
+  timerAlarmWrite(timerLocalWeather, 1000000 * 60, true);
 }
 
 void loop()
@@ -193,8 +209,13 @@ void loop()
       getDataFromIpapi(ipapiData);
       if (ipapiData.initialized && !ipapiData.error)
       {
-        timerAlarmEnable(timerLcd);
+        dht11.readDht(dht11Data);
+        getDataFromWeather(ipapiData.lat, ipapiData.lon, weatherData, timeData.gmtOffset_sec);
+        timeData.initialized = false;
+        syncTime(timeData);
         timerAlarmEnable(timerWeather);
+        timerAlarmEnable(timerLocalWeather);
+        timerAlarmEnable(timerLcd);
       }
       else
       {
@@ -206,6 +227,7 @@ void loop()
   {
     timerAlarmDisable(timerLcd);
     timerAlarmDisable(timerWeather);
+    timerAlarmDisable(timerLocalWeather);
     resetData();
 #ifdef DEBUG
     USE_SERIAL.println(F("[WIFI] Connecting..."));

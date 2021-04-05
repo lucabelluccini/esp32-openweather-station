@@ -128,29 +128,39 @@ typedef struct WeatherData
     DynamicJsonDocument raw = DynamicJsonDocument(1);
 } WeatherData_t;
 
-bool getDataFromWeather(const double latitude, const double longitude, WeatherData_t &ioData)
+bool getDataFromWeather(const double latitude, const double longitude, WeatherData_t &ioData, long &ioTimezoneOffset)
 {
     // Get it via http://arduinojson.org/assistant/
     static const size_t weatherBufferSize(JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(1) + 2 * JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(6) + JSON_OBJECT_SIZE(13) + 280);
     ioData.initialized = false;
-    bool error = true;
+    ioData.error = false;
     String url = String(weatherUrl) + OPENWEATHER_APIKEY + "&lat=" + String((double)latitude, 3) + "&lon=" + String((double)longitude, 3);
-    error = httpGetHelper(url, weatherCaCert, ioData.raw, weatherBufferSize);
-    if (!error)
+    ioData.error = httpGetHelper(url, weatherCaCert, ioData.raw, weatherBufferSize);
+    if (!ioData.error)
     {
 #ifdef DEBUG
-        USE_SERIAL.println(F("[JSON] Deserialized!"));
+        USE_SERIAL.println(F("[JSON] Weather Deserialized!"));
 #endif
         ioData.dt = (long)ioData.raw["dt"];
         ioData.timezone = (long)ioData.raw["timezone"];
 #ifdef DEBUG
-        USE_SERIAL.print(F("[JSON] Decoded data: "));
+        USE_SERIAL.print(F("[JSON] Weather Decoded data: "));
         USE_SERIAL.printf("%ld %ld\n", ioData.dt, ioData.timezone);
 #endif
-        error = false;
+        ioData.error = false;
         ioData.initialized = true;
+        ioTimezoneOffset = ioData.timezone;
     }
-    return error;
+    else
+    {
+        ioData.initialized = true;
+        ioData.error = true;
+#ifdef DEBUG
+        USE_SERIAL.print(F("[JSON] Error occurred when getting weather!"));
+#endif
+    }
+    
+    return ioData.error;
 }
 
 #endif

@@ -11,7 +11,7 @@
 LiquidCrystal_PCF8574 lcd(LCD_ADDR);
 
 // Generated using https://omerk.github.io/lcdchargen/
-int centigrades[8] = {
+byte centigrades[8] = {
     0b00100,
     0b01010,
     0b00100,
@@ -52,12 +52,21 @@ void writeToLcd(const char *line1, const char *line2)
     lcd.home();
     if (line1 != NULL)
     {
-        lcd.print(line1);
+#ifdef DEBUG
+        USE_SERIAL.print("Line 1: ");
+        USE_SERIAL.println(line1);
+#endif
+        lcd.setCursor(0,0);
+        lcd.print((const char *)line1);
     }
     if (line2 != NULL)
     {
+#ifdef DEBUG
+        USE_SERIAL.print("Line 2: ");
+        USE_SERIAL.println(line2);
+#endif
         lcd.setCursor(0, 1);
-        lcd.print(line2);
+        lcd.print((const char *)line2);
     }
     lcd.display();
 }
