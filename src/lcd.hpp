@@ -22,6 +22,26 @@ byte centigrades[8] = {
     0b00000};
 #define CENTIGRADES 1
 
+#define MAX_BACKLIGHT 255
+
+int brightness = MAX_BACKLIGHT;
+
+void setMaxBacklightLcd()
+{
+    brightness = MAX_BACKLIGHT;
+    lcd.setBacklight(brightness);
+}
+
+void fadeBacklightLcd()
+{
+    if(brightness > 0) {
+        brightness -= 128;
+    } else {
+        brightness = 0;
+    }
+    lcd.setBacklight(brightness);
+}
+
 void setupLcd()
 {
     Wire.begin();
@@ -34,7 +54,7 @@ void setupLcd()
 #endif
         lcd.begin(16, 2);
         lcd.createChar(CENTIGRADES, centigrades);
-        lcd.setBacklight(255);
+        setMaxBacklightLcd();
         lcd.home();
         lcd.clear();
     }
