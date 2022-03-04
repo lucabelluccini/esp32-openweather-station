@@ -6,6 +6,7 @@
 #include "dht11.hpp"
 #include "openweather.hpp"
 #include "ipapi.hpp"
+#include "pir.hpp"
 
 #ifndef WIFI_SSID
 #define WIFI_SSID "MYSSID"
@@ -15,6 +16,9 @@
 #endif
 #ifndef DHT11_PIN
 #define DHT11_PIN 4
+#endif
+#ifndef PIR_PIN
+#define PIR_PIN 27
 #endif
 
 // Pinout ESP32Wroom Doit V1 https://github.com/playelek/pinout-doit-32devkitv1
@@ -27,6 +31,7 @@ IpapiData_t ipapiData;
 Dht11 dht11;
 Dht11Data_t dht11Data;
 TimeData_t timeData;
+PirData_t pirData;
 
 void resetData()
 {
@@ -45,7 +50,8 @@ enum class TaskType
 {
   lcd,
   weather,
-  localWeather
+  localWeather,
+  pir
 };
 
 void consumerTask(void *parameter)
@@ -54,20 +60,32 @@ void consumerTask(void *parameter)
   uint8_t lcdScreen(0);
   char lineBuffer1[24];
   char lineBuffer2[24];
-  memset(lineBuffer1, 0, sizeof(lineBuffer1));
-  memset(lineBuffer2, 0, sizeof(lineBuffer2));
   for (;;)
   {
     if (xQueueReceive(queue, &iReceivedTaskType, portMAX_DELAY))
     {
       switch (iReceivedTaskType)
       {
+      case TaskType::pir:
+#ifdef DEBUG
+        USE_SERIAL.printf("[consumerTask] TaskType::pir\n");
+#endif
+        if (timeData.initialized)
+        {
+          readTime(timeData, "%F %R");
+        }
+        setMaxBacklightLcd();
+#ifdef DEBUG
+        USE_SERIAL.printf("[consumerTask] PIR triggered at %s\n", timeData.localTime);
+#endif
+        break;
       case TaskType::lcd:
       {
+        memset(lineBuffer1, 0, sizeof(lineBuffer1));
+        memset(lineBuffer2, 0, sizeof(lineBuffer2));
 #ifdef DEBUG
         USE_SERIAL.printf("[consumerTask] TaskType::lcd %u type\n", lcdScreen);
 #endif
-
         switch (lcdScreen++)
         {
         case 0:
@@ -119,6 +137,7 @@ void consumerTask(void *parameter)
         if (lcdScreen > 4)
         {
           lcdScreen = 0;
+          fadeBacklightLcd();
         }
         break;
       }
@@ -167,6 +186,12 @@ void IRAM_ATTR onTimerLocalWeather()
   xQueueSendFromISR(queue, &localWeatherTT, NULL);
 }
 
+void IRAM_ATTR onPir()
+{
+  TaskType pirTT(TaskType::pir);
+  xQueueSendFromISR(queue, &pirTT, NULL);
+}
+
 void setup()
 {
 #ifdef DEBUG
@@ -177,6 +202,7 @@ void setup()
   wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
   setupLcd();
   resetData();
+  setupPir(&onPir);
 
   queue = xQueueCreate(queueSize, sizeof(int));
   if (queue == NULL)
@@ -195,7 +221,7 @@ void setup()
   timerAlarmWrite(timerWeather, 1000000 * 60 * 15, true);
   timerLocalWeather = timerBegin(2, 80, true);
   timerAttachInterrupt(timerLocalWeather, &onTimerLocalWeather, true);
-  timerAlarmWrite(timerLocalWeather, 1000000 * 60, true);
+  timerAlarmWrite(timerLocalWeather, 1000000 * 15, true);
 }
 
 void loop()
